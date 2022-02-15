@@ -144,15 +144,30 @@ def feature_transform_regularizer(trans):
     return loss
 
 if __name__ == '__main__':
-    sim_data_64d = torch.rand(32, 100, 53)
+    sim_data_64d = torch.rand(50, 100, 53)
     # trans = STNkd(k=64)
     # out = trans(sim_data_64d)
     # print('stn64d', out.size())
     # print('loss', feature_transform_regularizer(out))
 
-    pointfeat = PointNetfeat_lite(feat_dim=53, hidden_size=768, global_feat=False)
-    out, _, _ = pointfeat(sim_data_64d)
-    print('point feat', out.size())
-    pointfeat = PointNetfeat_lite(feat_dim=53, hidden_size=768, global_feat=True)
-    out, _, _ = pointfeat(sim_data_64d)
-    print('point feat', out.size())
+    pointfeat = PointNetfeat_lite(feat_dim=53, hidden_size=768, global_feat=False).cuda()
+    out1, _, _ = pointfeat(sim_data_64d.cuda())
+    pointfeat = PointNetfeat_lite(feat_dim=53, hidden_size=768, global_feat=True).cuda()
+    pointfeat.eval()
+    out1, _, _ = pointfeat(sim_data_64d.cuda())
+
+    perm = torch.randperm(sim_data_64d.size(1))
+    idx = perm[:20]
+    samples = sim_data_64d[:, idx, :]
+    x_duplicated = torch.cat([sim_data_64d, samples], dim=1)
+
+    out2,_,_ = pointfeat(x_duplicated.cuda())
+    
+    print(out1)
+    print(out2)
+    print(torch.equal(out1, out2))
+    print(torch.nn.functional.mse_loss(out1, out2))
+
+    x_another = torch.randn_like(sim_data_64d).cuda()
+    out3,_,_ = pointfeat(x_another)
+    print(torch.nn.functional.mse_loss(out1, out3))

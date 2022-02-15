@@ -68,16 +68,31 @@ class cls_loss(nn.Module):
 
 
 if __name__ == '__main__':
-    xyz = torch.randn(16, 20, 3) * 3
-    points = torch.randn(16, 20, 50) * 3
-    ssg_model = pointnet2_feat_msg(50+3, 768)
+    xyz = torch.randn(50, 100, 3) * 3
+    points = torch.randn(50, 100, 50) * 3
+    ssg_model = pointnet2_feat_msg(50+3, 768).cuda()
+    ssg_model.eval()
 
     # print(ssg_model)
     # xyz:    point coord
     # points: point feature vector
     x = torch.cat([xyz, points], dim=2)
-    net = ssg_model(x)
-    print(net.shape)
+
+    perm = torch.randperm(x.size(1))
+    idx = perm[:20]
+    samples = x[:, idx, :]
+    x_duplicated = torch.cat([x, samples], dim=1)
+    out1 = ssg_model(x.cuda())
+    print(out1)
+    out2 = ssg_model(x_duplicated.cuda())
+    print(out2)
+    print(torch.equal(out1, out2))
+    print(torch.nn.functional.mse_loss(out1, out2))
+
+    x_another = torch.randn_like(x.cuda())
+    out3 = ssg_model(x_another)
+    print(torch.nn.functional.mse_loss(out1, out3))
+
     #loss = cls_loss()
     #loss = loss(net, label)
     #print(loss)
