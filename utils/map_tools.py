@@ -87,10 +87,13 @@ def get_agent_orientation(arot):
     rot = math.atan2(agent_forward[0], agent_forward[2])
     return rot
 
-def draw_agent(aloc, arot, np_map):
-    agent_orientation = get_agent_orientation(arot)
+def draw_agent(aloc, arot, np_map, is_radian=False, color=(0,0,255,255)):
+    if is_radian:
+        agent_orientation = arot
+    else:
+        agent_orientation = get_agent_orientation(arot)
     agent_arrow = get_contour_points( (aloc[1], aloc[0], agent_orientation), size=15)
-    cv2.drawContours(np_map, [agent_arrow], 0, (0,0,255,255), -1)
+    cv2.drawContours(np_map, [agent_arrow], 0, color, -1)
 
 def draw_point(pil_img, x, y, point_size, color, text=None):
     drawer = ImageDraw.Draw(pil_img, 'RGBA')
@@ -141,7 +144,7 @@ def get_maps(scene_id, root_path, merged):
         nav_map  = f['nav_map'][()]
         room_map = f['room_map'][()] 
         obj_maps = f['obj_maps'][()] 
-        obj_maps[:,:,1] = ((obj_maps[:,:,1]>0) ^ (obj_maps[:,:,15]>0)) * obj_maps[:,:,15] + obj_maps[:,:,1] # merge stairs to floor
+        # obj_maps[:,:,1] = ((obj_maps[:,:,1]>0) ^ (obj_maps[:,:,15]>0)) * obj_maps[:,:,15] + obj_maps[:,:,1] # merge stairs to floor
         if merged:
             room_map, obj_maps=merge_maps(room_map, obj_maps)
         bounds = f['bounds'][()]
@@ -247,7 +250,7 @@ def draw_candidates(map, start_grid_pos, size, order):
         draw_point(overlay, cc, cr, 8, color=tuple(tab10_colors_rgba[order%10]), text=str(order))
     return overlay
 
-def create_candidates(nav_map, obj_maps, sample_gap=1.2, floor_idx = 1, meters_per_pixel=0.05, bound=None):
+def create_candidates(valid_map, sample_gap=1.2, floor_idx = 1, meters_per_pixel=0.05):
     """
     Args:
         sample_gap: meter of sampling gap
@@ -260,18 +263,15 @@ def create_candidates(nav_map, obj_maps, sample_gap=1.2, floor_idx = 1, meters_p
     xs = [0,0, r, -r,r,-r,r,-r]
     ys = [r,-r,0,0,r,-r,-r,r]
 
-    for i in range(step_size//2, nav_map.shape[0], step_size):
-        for j in range(step_size//2, nav_map.shape[1], step_size):
-            if bound is not None:
-                if i < bound[0] or i>bound[2] or j < bound[1] or j>bound[3]:
-                    continue
-            if nav_map[i,j] > 0 or obj_maps[i,j,floor_idx]>0:
+    for i in range(step_size//2, valid_map.shape[0], step_size):
+        for j in range(step_size//2, valid_map.shape[1], step_size):
+            if valid_map[i,j]:
                 candidates.append((i, j))
             else:
                 for t in zip(xs, ys):
-                    newx = np.clip(i+t[0], 0, nav_map.shape[0]-1)
-                    newy = np.clip(j+t[1], 0, nav_map.shape[1]-1)
-                    if nav_map[newx,newy] > 0 or obj_maps[newx, newy, floor_idx]>0:
+                    newx = np.clip(i+t[0], 0, valid_map.shape[0]-1)
+                    newy = np.clip(j+t[1], 0, valid_map.shape[1]-1)
+                    if valid_map[newx,newy]:
                         candidates.append((newx, newy))
                         break
     return candidates
@@ -409,3 +409,4 @@ class shortest_path:
         path = [tar_point]
         find_path(self.get_graph_id_fn(tar_point), path)
         return np.array(path[::-1])
+
