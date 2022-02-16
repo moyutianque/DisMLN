@@ -128,7 +128,8 @@ class PointNetfeat_lite(nn.Module):
         x = torch.max(x, 2, keepdim=True)[0]
         x = x.view(-1, self.global_feat_dim)
         if self.global_feat:
-            return x, trans, trans_feat
+            # return x, trans, trans_feat
+            return x
         else:
             x = x.view(-1, self.global_feat_dim, 1).repeat(1, 1, n_pts)
             return torch.cat([x, pointfeat], 1), trans, trans_feat
@@ -154,14 +155,14 @@ if __name__ == '__main__':
     out1, _, _ = pointfeat(sim_data_64d.cuda())
     pointfeat = PointNetfeat_lite(feat_dim=53, hidden_size=768, global_feat=True).cuda()
     pointfeat.eval()
-    out1, _, _ = pointfeat(sim_data_64d.cuda())
+    out1 = pointfeat(sim_data_64d.cuda())
 
     perm = torch.randperm(sim_data_64d.size(1))
     idx = perm[:20]
     samples = sim_data_64d[:, idx, :]
     x_duplicated = torch.cat([sim_data_64d, samples], dim=1)
 
-    out2,_,_ = pointfeat(x_duplicated.cuda())
+    out2 = pointfeat(x_duplicated.cuda())
     
     print(out1)
     print(out2)
@@ -169,5 +170,5 @@ if __name__ == '__main__':
     print(torch.nn.functional.mse_loss(out1, out2))
 
     x_another = torch.randn_like(sim_data_64d).cuda()
-    out3,_,_ = pointfeat(x_another)
+    out3  = pointfeat(x_another)
     print(torch.nn.functional.mse_loss(out1, out3))
