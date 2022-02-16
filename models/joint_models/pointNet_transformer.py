@@ -1,15 +1,27 @@
-from turtle import forward
-from unittest import result
 import torch
+import torch.nn.functional as F
+import warnings
 import torch.nn as nn
 import pytorch_lightning as pl
 import torchmetrics
 from models.extractor_local_rep import build_extractor
-from transformers import BertTokenizer, BertModel
-from transformers.modeling_bert import BertEmbeddings
+from transformers import BertTokenizer, BertModel, BertConfig
+from transformers.modeling_bert import BertEncoder, BertPooler, BertOnlyMLMHead
 from torch.nn.utils.rnn import pad_sequence 
+from statistics import mean
+import itertools
+import json
+import numpy as np
+
+# NOTE: official solution for logging on console, file handler is declared in run.py
+import logging
+logger = logging.getLogger("pytorch_lightning.core")
 
 class ModifiedBert(BertModel):
+    def __init__(self, config):
+        super().__init__(config)
+        self.mlm_head = BertOnlyMLMHead(config)
+
     def forward(
         self,
         input_ids,
@@ -56,13 +68,35 @@ class ModifiedBert(BertModel):
         output_hidden_states = (
             output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         )
-        inputs_embeds = self.embeddings.word_embeddings(input_ids)
+
+        self.instruction_len = input_ids.shape[1]
+        if self.training:
+            # MLM aux task
+            # create random array of floats with equal dimensions to input_ids tensor
+            self.labels = input_ids.clone()
+            rand = torch.rand(input_ids.shape).to(input_ids.device)
+            # create mask array
+            mask_arr = (rand < 0.1) * (input_ids != 101) * \
+                       (input_ids != 102) * (input_ids != 0)
+            selection = []
+
+            for i in range(input_ids.shape[0]):
+                selection.append(
+                    torch.nonzero(mask_arr[i]).flatten().tolist()
+                )
+            for i in range(input_ids.shape[0]):
+                input_ids[i, selection[i]] = 103
+                mask = torch.ones(self.instruction_len, dtype=bool)
+                mask[selection[i]] = False
+                self.labels[i, mask] = -100
+            inputs_embeds = self.embeddings.word_embeddings(input_ids)   
+        else:
+            inputs_embeds = self.embeddings.word_embeddings(input_ids)
 
         device = input_ids.device if input_ids is not None else inputs_embeds.device
         # NOTE: construct language + map input
         inputs_embeds = torch.cat([
-            inputs_embeds, self.embeddings.word_embeddings(torch.ones(inputs_embeds.shape[0], ).to(device).long()* 201).unsqueeze(1), path_room_emb, 
-                           self.embeddings.word_embeddings(torch.ones(inputs_embeds.shape[0], ).to(device).long()* 201).unsqueeze(1), path_obj_emb
+            inputs_embeds, path_room_emb, path_obj_emb
             ], dim=1
         )
 
@@ -106,7 +140,12 @@ class ModifiedBert(BertModel):
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output)
 
-        outputs = (sequence_output, pooled_output,) + encoder_outputs[
+        if self.training:
+            token_pred = self.mlm_head(sequence_output[:,:self.instruction_len]).view(-1, self.config.vocab_size)
+            mlm_loss = F.cross_entropy(token_pred, self.labels.view(-1))
+        else:
+            mlm_loss = 0
+        outputs = (sequence_output, pooled_output, mlm_loss, ) + encoder_outputs[
             1:
         ]  # add hidden_states and attentions if they are here
         return outputs  # sequence_output, pooled_output, (hidden_states), (attentions)
@@ -139,18 +178,36 @@ class PointNet_Transformer(pl.LightningModule):
         self.room_fusion = nn.Linear(50 * config.ROOM_ENCODER.room_compass_chunks, config.OBJ_ENCODER.hidden_size)
         # self.glove_linear = nn.Linear(50, config.OBJ_ENCODER.hidden_size)
 
+        self.join_model_config = BertConfig.from_pretrained('bert-base-uncased')
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.joint_model = ModifiedBert.from_pretrained("bert-base-uncased")
+        if config.JOINT_ENCODER.pretrained_emb:
+            # self.joint_model = ModifiedBert.from_pretrained("bert-base-uncased")
+            self.joint_model = ModifiedBert.from_pretrained("bert-base-uncased")
+
+        self.join_model_config.hidden_size = config.JOINT_ENCODER.hidden_size
+        self.join_model_config.num_hidden_layers= config.JOINT_ENCODER.num_layers
+
+        self.joint_model.encoder = BertEncoder(self.join_model_config)
+        self.joint_model.pooler = BertPooler(self.join_model_config)
         self.joint_model.embeddings.token_type_embeddings = nn.Embedding(4, config.OBJ_ENCODER.hidden_size)
-        self.cls_head = nn.Linear(config.OBJ_ENCODER.hidden_size, 10+1) # 11 level score, for class label > 4 were treated correct in mlnv1
+        
+        self.regression = config.regression
+        if not config.regression:
+            self.cls_head = nn.Linear(config.OBJ_ENCODER.hidden_size, 10+1) # 11 level score, for class label > 4 were treated correct in mlnv1
+        else:
+            self.cls_head = nn.Linear(config.OBJ_ENCODER.hidden_size, 1) # 11 level score, for class label > 4 were treated correct in mlnv1
 
         self.accuracy = torchmetrics.Accuracy()
         self.val_accuracy = torchmetrics.Accuracy()
-        self.loss_fn = LabelSmoothing(0.1)
+
+        if self.regression:
+            self.loss_fn = nn.MSELoss()
+        else:
+            self.loss_fn = LabelSmoothing(0.1)
 
     def forward(self, batch):
         # inference actions
-        instructions, obj_data, room_data, seq_lens, y = batch
+        instructions, obj_data, room_data, seq_lens, y, infos = batch
         device = obj_data.device
         # => obj_data [sum(points), max_num_objs, 3 + 50]
         # => instruction_emb [bs, 200, 50]
@@ -165,9 +222,9 @@ class PointNet_Transformer(pl.LightningModule):
         map_attn_mask = []
         for seq_len in seq_lens:
             # +1 for [SEP] token
-            room_type_ids.append(torch.ones(seq_len+1, )*2)
-            obj_type_ids.append( torch.ones(seq_len+1, )*3)
-            map_attn_mask.append(torch.ones(seq_len+1, ))
+            room_type_ids.append(torch.ones(seq_len, )*2)
+            obj_type_ids.append( torch.ones(seq_len, )*3)
+            map_attn_mask.append(torch.ones(seq_len, ))
         room_type_ids = pad_sequence(room_type_ids, batch_first=True)
         obj_type_ids = pad_sequence(obj_type_ids, batch_first=True)
         map_attn_mask = pad_sequence(map_attn_mask, batch_first=True)
@@ -184,48 +241,103 @@ class PointNet_Transformer(pl.LightningModule):
 
         out = self.joint_model(**instruction_tokens, path_room_emb=path_room_emb, path_obj_emb=path_obj_emb)
         logits = self.cls_head(out[0][:, 0])
-        return logits
+        if self.regression:
+            logits=logits.squeeze(1)
+        mlm_loss = out[2]
+        return logits, mlm_loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-4)
         return optimizer
 
     def training_step(self, train_batch, batch_idx):
         # training_step defined the train loop.
-        _, _, _, _, target = train_batch
-        target = target.long()
-        pred = self(train_batch)
+        _, _, _, _, target, infos = train_batch
+        if self.regression:
+            target = target.float()
+        else:
+            target = target.long()
+        pred, mlm_loss = self(train_batch)
         loss = self.loss_fn(pred, target)
+        loss += mlm_loss
         self.log('train_loss', loss, batch_size=target.shape[0])
- 
-        self.accuracy(pred, target)
+
+        if not self.regression:
+            self.accuracy(pred, target)
+            self.log('train_acc_step', self.accuracy, batch_size=target.shape[0])
         recall = self.mln_recall(pred, target)
-        self.log('train_acc_step', self.accuracy, batch_size=target.shape[0])
+        
         self.log('train_recall', float(recall), batch_size=target.shape[0])
         return loss
 
     def validation_step(self, val_batch, batch_idx):
         # validation_step defined the validation loop.
-        _, _, _, _, target = val_batch
-        target = target.long()
-        pred = self(val_batch)
-        self.val_accuracy(pred, target)
-        
+        _, _, _, _, target, infos = val_batch
+        if self.regression:
+            target = target.float()
+        else:
+            target = target.long()
+        pred, _ = self(val_batch)
         loss = self.loss_fn(pred, target)
         self.log('val_loss', loss, batch_size=target.shape[0])
 
+        if not self.regression:
+            self.val_accuracy(pred, target)
         recall = self.mln_recall(pred, target)
         self.log('val_recall', float(recall), batch_size=target.shape[0])
         
-        return {"loss": loss, 'val_recall': float(recall)}
+        return {"loss": loss, 'val_recall': float(recall), 'gt_scores': target}
 
     def validation_epoch_end(self, outputs) -> None:
-        val_acc = self.val_accuracy.compute()
-        print(f"\nvalidation accuracy {val_acc}")
+        if self.regression:
+            gt_scores = [out['gt_scores'].tolist() for out in outputs ]
+            values, counts = np.unique(list(itertools.chain.from_iterable(gt_scores)), return_counts=True)
+            # print("\nval recall:", mean([out['val_recall'] for out in outputs ]))
+            # print("val loss:", mean([out['loss'].item() for out in outputs ]))
+            # print("val data distribution", sorted(list(zip(values, counts)), key=lambda x: x[0]))
+            out_dict= {
+                'val_recall': mean([out['val_recall'] for out in outputs ]), 
+                "val_loss": mean([out['loss'].item() for out in outputs ]),
+                "val_distribution": sorted(list(zip(values, counts)), key=lambda x: x[0])
+            }
+            logger.info(f"\n")
+            for k,v in out_dict.items():
+                logger.info(f"{k}: {v}")
+            logger.info(f"\n")
+            return out_dict
+        else:
+            val_acc = self.val_accuracy.compute()
+            print(f"\nvalidation accuracy {val_acc}")
+            return {"val_acc": val_acc}
+    
+    def test_step(self, batch, batch_idx):
+        # OPTIONAL
+        _, _, _, _, target, infos = batch
+        preds, _ = self(batch)
+        if self.regression:
+            target =  target.float()
+        else:
+            target = target.long()
+            _, preds = torch.max(pred, 1)
+        
+        out_list = []
+        preds = preds.flatten().tolist()
+        for pred, info in zip(preds, infos):
+            out_list.append({"ep_id": info['ep_id'], 'scene_name': info['scene_name'], 'pred_score': pred})
+
+        return out_list
+
+    def test_epoch_end(self, outputs):
+        outs = list(itertools.chain.from_iterable(outputs))
+        out_path = './tmp/test_out.json'
+        print(f"Output to {out_path}")
+        with open(out_path, 'w') as f:
+            json.dump(outs, f)
         return 
     
-    def mln_recall(self, pred, target):
-        preds = pred.argmax(dim=-1)
+    def mln_recall(self, preds, target):
+        if not self.regression:
+            preds = preds.argmax(dim=-1)
         cnt = 0
         tot = 0
         for pred_score, target_score in zip(preds, target):

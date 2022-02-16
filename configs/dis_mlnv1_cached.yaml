@@ -1,35 +1,42 @@
 LOG_DIR: './exps'
 SEED: 100
+EVAL_PATH: "./tmp/ckpts/epoch=0-step=999.ckpt"
 TRAINER:
   MODEL_NAME: PointNet_Transformer
   MODEL:
+    regression: True
     OBJ_ENCODER:
-      TYPE: "pointnet2"
+      TYPE: "pointnet"
       feat_dim: 53
       hidden_size: &hidden 768
     ROOM_ENCODER:
       room_compass_chunks: &num_chunks 12
     JOINT_ENCODER:
+      pretrained_emb: True
       num_layers: 6
       num_heads: 12
       hidden_size: *hidden
-      dim_feedforward: 2048
+      dim_feedforward: 3076
+      mlm_ratio: 0.1
 
   
   EPOCHS: 50
 
 DATASET:
   NAME: MLNv1_Dis_Dataset_Cached
-  annt_root: '/data/leuven/335/vsc33595/ProjectsVSC/DisMLN/dset_gen/generated/cache_sample/{split}'
+  annt_root: './dset_gen/generated/cache_full_merge/down4x_SP/{split}'
 
   EVAL:
     NAME: "valid"
     batch_size: 32
     num_workers: 8
 
-  INFERENCE: "tmp"
+  TEST:
+    NAME: "test"
+    batch_size: 32
+    num_workers: 8
 
   TRAIN: 
     NAME: "train"
-    batch_size: 20
+    batch_size: 32
     num_workers: 8

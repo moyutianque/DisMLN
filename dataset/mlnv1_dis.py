@@ -122,8 +122,13 @@ class MLNv1_Dis_Dataset(Dataset):
             rooms_emb = self.embedding_layer(torch.tensor(rooms).long())
             # print(rooms_emb.size())
             key_point_room.append(rooms_emb)
+        
+        info={
+            "scene_name": datum.get('scene_name', None),
+            "ep_id": datum.get('ep_id', None)
+        }
             
-        return instruction, key_point_objs, key_point_room, target[0]
+        return instruction, key_point_objs, key_point_room, target[0], info
     
     def collate_fc(self, batch):
         instructions = default_collate([b[0] for b in batch])
@@ -134,7 +139,8 @@ class MLNv1_Dis_Dataset(Dataset):
         key_point_objs = torch.cat([torch.stack(b[1]) for b in batch], dim=0)
         key_point_room = torch.cat([torch.stack(b[2]) for b in batch], dim=0)
         targets = default_collate([b[3] for b in batch])
-        return instructions, key_point_objs, key_point_room, seq_len, targets
+        infos = [ b[4] for b in batch]
+        return instructions, key_point_objs, key_point_room, seq_len, targets, infos
 
 
 if __name__ == "__main__":

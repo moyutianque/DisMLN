@@ -30,7 +30,7 @@ def timeout_handler(signum, frame):   # Custom signal handler
 signal.signal(signal.SIGALRM, timeout_handler)
 
 class dset_generator(object):
-    def __init__(self, nav_radius=42, split='train', sp_radius=1, sp_step=1, discretized_in_meter=2, meters_per_pixel=0.05, sample_gap=1.2) -> None:
+    def __init__(self, nav_radius=21, split='train', sp_radius=1, sp_step=1, discretized_in_meter=2, meters_per_pixel=0.05, sample_gap=1.2) -> None:
         """
         Args:
             nav_radius: in meters
@@ -65,7 +65,7 @@ class dset_generator(object):
         self.sp_step = sp_step
         
         # Path Discretizing Config
-        self.scale_percentage=25 # shortest path scale factor
+        self.scale_percentage=100 # shortest path scale factor
         self.dis_steps = (discretized_in_meter / (meters_per_pixel * sp_step)) * (self.scale_percentage/100.)
         if self.dis_steps <= 0:
             self.dis_steps=1

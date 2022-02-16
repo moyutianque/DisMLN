@@ -3,7 +3,7 @@ from models import pointnet, pointnet2
 def build_extractor(config):
     if config.TYPE == 'pointnet':
         model = pointnet.PointNetfeat_lite(
-            feat_dim=config.feat_dim, hidden_size=config.hidden_size, global_feat=config.global_feat
+            feat_dim=config.feat_dim, hidden_size=config.hidden_size, global_feat=True
         )
     elif config.TYPE == 'pointnet2':
         model = pointnet2.pointnet2_feat_msg(

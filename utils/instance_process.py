@@ -33,10 +33,10 @@ def get_surrounding_objs(obj_map, nav_map, agent_grid_pos, radius, floor_idx=1, 
     h, w = nav_map.shape[:2]
 
     # assert nav_map[r,c] > 0 or obj_map[r,c,floor_idx] > 0, f"{nav_map[r-2:r+3,c-2:c+3]} {obj_map[r-2:r+3,c-2:c+3,floor_idx]} {r} {c} {h} {w}"
-    if nav_map[r,c] <= 0 and obj_map[r,c,floor_idx] <= 0:
-        print(f"\n{nav_map[r-2:r+3,c-2:c+3]} \n{obj_map[r-2:r+3,c-2:c+3,floor_idx]} {r} {c} {h} {w}")
-        if skip_not_valid:
-            exit()
+    # if nav_map[r,c] <= 0 and obj_map[r,c,floor_idx] <= 0:
+    #     print(f"\n{nav_map[r-2:r+3,c-2:c+3]} \n{obj_map[r-2:r+3,c-2:c+3,floor_idx]} {r} {c} {h} {w}")
+    #     if skip_not_valid:
+    #         exit()
         
     bound = int(round(radius/meter_per_pixel))
 

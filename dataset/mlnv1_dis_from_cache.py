@@ -17,6 +17,7 @@ class MLNv1_Dis_Dataset_Cached(Dataset):
             with jsonlines.open(file_path) as reader:
                 for obj in reader:
                     self.data.append(obj)
+        print(f"Successfully load {len(self.data)} data for split {split}")
         
         # embeddings
         self.embedding_layer = load_embeddings()
@@ -30,6 +31,10 @@ class MLNv1_Dis_Dataset_Cached(Dataset):
         room_list = datum['room_list']
         points_list = datum['points_list']
         target = datum['target']
+        info={
+            "scene_name": datum.get('scene_name', None),
+            "ep_id": datum.get('ep_id', None)
+        }
 
         key_point_objs = []
         key_point_room = []
@@ -40,7 +45,7 @@ class MLNv1_Dis_Dataset_Cached(Dataset):
             rooms_emb = self.embedding_layer(torch.tensor(rooms).long())
             key_point_room.append(rooms_emb)
             
-        return instruction, key_point_objs, key_point_room, target
+        return instruction, key_point_objs, key_point_room, target, info
     
     def collate_fc(self, batch):
         instructions = default_collate([b[0] for b in batch])
@@ -51,5 +56,6 @@ class MLNv1_Dis_Dataset_Cached(Dataset):
         key_point_objs = torch.cat([torch.stack(b[1]) for b in batch], dim=0)
         key_point_room = torch.cat([torch.stack(b[2]) for b in batch], dim=0)
         targets = default_collate([b[3] for b in batch])
-        return instructions, key_point_objs, key_point_room, seq_len, targets
+        infos = [ b[4] for b in batch]
+        return instructions, key_point_objs, key_point_room, seq_len, targets, infos
 

@@ -5,7 +5,9 @@ from configs.default import get_cfg_defaults
 import random
 import numpy as np
 from trainer import BaseTrainer
-from pprint import pprint
+import pprint 
+import logging
+
 
 def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     """Runs experiment given mode and config
@@ -15,17 +17,26 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         run_type: "train" or "eval.
         opts: list of strings of additional config options.
     """
+
     config = get_cfg_defaults()
     config.defrost()
     config.merge_from_file(exp_config)
     if opts:
         config.merge_from_list(opts)
     config.freeze()
-    print(f"CONFIG: ")
-    pprint(config)
-    print("="*20)
 
-    print(f"using seed {config.SEED}")
+    # NOTE: official solution for logging on console, file handler is declared in run.py
+    # configure logging at the root level of lightning
+    logging.getLogger("pytorch_lightning").setLevel(logging.INFO)
+
+    # # configure logging on module level, redirect to file
+    logger = logging.getLogger("pytorch_lightning.core")
+    logger.addHandler(logging.FileHandler(f"{config.LOG_DIR}/core.log"))
+    logger.info("CONFIG: ")
+    logger.info(pprint.pformat(config, indent=4))
+    logger.info("="*20)
+
+    logger.info(f"using seed {config.SEED}")
     random.seed(config.SEED)
     np.random.seed(config.SEED)
     torch.manual_seed(config.SEED)
@@ -37,8 +48,8 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         trainer.train()
     # elif run_type == "eval":
     #     trainer.eval()
-    # elif run_type == "inference":
-    #     trainer.inference()
+    elif run_type == "inference":
+        trainer.inference(config.EVAL_PATH)
 
 
 def main():
