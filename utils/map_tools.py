@@ -12,7 +12,7 @@ import math
 # import magnum as mn
 import quaternion
 from PIL import Image, ImageDraw, ImageFont
-font = ImageFont.truetype("./data/arial.ttf", 14)
+font = ImageFont.truetype("./data/arial.ttf", 8)
 
 from constants import obj_merged_dict, room_merged_dict, roomidx2name, semantic_sensor_40cat, room_set, objs_set, tab10_colors_rgba
 from queue import PriorityQueue

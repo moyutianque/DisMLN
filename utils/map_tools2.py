@@ -54,7 +54,6 @@ def euclidean_distance(
 ) -> float:
     return np.linalg.norm(np.array(pos_b) - np.array(pos_a), ord=2)
 
-
 class shortest_path2:
     # with downsample2d and valid map
     def __init__(self, valid_map, start_point, radius = 1, step =1, scale_percent=50):

@@ -29,6 +29,8 @@ def timeout_handler(signum, frame):   # Custom signal handler
 # Change the behavior of SIGALRM
 signal.signal(signal.SIGALRM, timeout_handler)
 
+out_root = './dset_gen/generated/raw_{split}'
+
 class dset_generator(object):
     def __init__(self, nav_radius=21, split='train', sp_radius=1, sp_step=1, discretized_in_meter=2, meters_per_pixel=0.05, sample_gap=1.2) -> None:
         """
@@ -40,6 +42,9 @@ class dset_generator(object):
             meters_per_pixel: in meters
             sample_gap: in meters
         """
+        print(f"generating data for {split} set")
+        self.out_dir = out_root.format(split=split)
+        os.makedirs(self.out_dir, exist_ok=True)
         self.split = split
         data_path = f"data/annt/{split}/{split}"
         with gzip.open(data_path+".json.gz", "rt") as f:
@@ -134,7 +139,7 @@ class dset_generator(object):
                             point, grid_dimensions, upper_bound, lower_bound
                         )
                     )
-            candidate_pathes, scores, original_candidate_path= self.get_candidate_paths(
+            candidate_pathes, scores, original_candidate_path = self.get_candidate_paths(
                 valid_map_medianblured[local_bound[0]:local_bound[2], local_bound[1]:local_bound[3]], 
                 start_grid_pos, get_agent_orientation(start_rot), end_grid_pos, gt_path, 
                 offset=(local_bound[0], local_bound[1])
@@ -172,7 +177,7 @@ class dset_generator(object):
                         "end_point": end_grid_pos
                     }
                 }
-                with jsonlines.open(f'./dset_gen/generated/raw/{self.split}_{ep_id}.jsonl', mode='a') as writer:
+                with jsonlines.open(osp.join(self.out_dir, f'{ep_id}.jsonl'), mode='a') as writer:
                     writer.write(out_dict)
 
                 
@@ -265,6 +270,6 @@ class dset_generator(object):
     
     
 if __name__ == '__main__':
-    generator=dset_generator()
+    generator=dset_generator(split='val_unseen')
     generator.gen()
     
