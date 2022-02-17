@@ -9,6 +9,7 @@ from utils.parse_wordmap import load_embeddings
 class MLNv1_Dis_Dataset_Cached(Dataset):
     def __init__(self, config, split):
         # Load maps
+        self.target_type = config.target_type
         annt_root = config.annt_root.format(split=split)
         # Load path annotations
         self.data = []
@@ -30,10 +31,20 @@ class MLNv1_Dis_Dataset_Cached(Dataset):
         instruction = datum['instruction']
         room_list = datum['room_list']
         points_list = datum['points_list']
-        target = datum['target']
+        if self.target_type == 'dis_score':
+            target = datum['target']
+            target = target/10.0
+        elif self.target_type == 'ndtw':
+            target = datum['ndtw']
+        else:
+            raise NotImplementedError()
+
         info={
             "scene_name": datum.get('scene_name', None),
-            "ep_id": datum.get('ep_id', None)
+            "ep_id": datum.get('ep_id', None),
+            "ndtw": datum['ndtw'],
+            "dis_score": datum["target"],
+            "path": datum['raw']['path']
         }
 
         key_point_objs = []

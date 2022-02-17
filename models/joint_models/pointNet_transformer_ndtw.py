@@ -13,7 +13,6 @@ import itertools
 import json
 import numpy as np
 from metrics import MLN_SuccessRate
-
 # NOTE: official solution for logging on console, file handler is declared in run.py
 import logging
 logger = logging.getLogger("pytorch_lightning.core")
@@ -26,6 +25,7 @@ class ModifiedBert(BertModel):
     def forward(
         self,
         input_ids,
+        ndtws,
         path_room_emb, 
         path_obj_emb,
         attention_mask,
@@ -97,7 +97,7 @@ class ModifiedBert(BertModel):
         device = input_ids.device if input_ids is not None else inputs_embeds.device
         # NOTE: construct language + map input
         inputs_embeds = torch.cat([
-            inputs_embeds, path_room_emb, path_obj_emb
+            inputs_embeds, ndtws, path_room_emb, path_obj_emb
             ], dim=1
         )
 
@@ -172,7 +172,7 @@ class LabelSmoothing(nn.Module):
         loss = self.confidence * nll_loss + self.smoothing * smooth_loss
         return loss.mean()
 
-class PointNet_Transformer(pl.LightningModule):
+class PointNet_Transformer_NDTW(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.obj_encoder = build_extractor(config.OBJ_ENCODER)
@@ -190,7 +190,7 @@ class PointNet_Transformer(pl.LightningModule):
 
         self.joint_model.encoder = BertEncoder(self.join_model_config)
         self.joint_model.pooler = BertPooler(self.join_model_config)
-        self.joint_model.embeddings.token_type_embeddings = nn.Embedding(4, config.OBJ_ENCODER.hidden_size)
+        self.joint_model.embeddings.token_type_embeddings = nn.Embedding(5, config.OBJ_ENCODER.hidden_size)
         
         self.regression = config.regression
         if not config.regression:
@@ -198,11 +198,13 @@ class PointNet_Transformer(pl.LightningModule):
         else:
             self.cls_head = nn.Linear(config.OBJ_ENCODER.hidden_size, 1) # 11 level score, for class label > 4 were treated correct in mlnv1
 
+        self.proj_ndtws = nn.Linear(1, config.OBJ_ENCODER.hidden_size)
+
         if self.regression:
             self.loss_fn = nn.MSELoss()
         else:
             self.loss_fn = LabelSmoothing(0.1)
-        
+                
         self.mln_success_rate = MLN_SuccessRate()
 
     def forward(self, batch):
@@ -220,6 +222,7 @@ class PointNet_Transformer(pl.LightningModule):
         room_type_ids = []
         obj_type_ids = []
         map_attn_mask = []
+        ndtw_type_ids = torch.ones(len(seq_lens), 1) * 4
         for seq_len in seq_lens:
             room_type_ids.append(torch.ones(seq_len, )*2)
             obj_type_ids.append( torch.ones(seq_len, )*3)
@@ -232,13 +235,16 @@ class PointNet_Transformer(pl.LightningModule):
         instruction_tokens = self.tokenizer(instructions, return_tensors='pt', padding=True)
         instruction_tokens['input_ids'] = instruction_tokens['input_ids'].to(device).long()
         instruction_tokens['token_type_ids'] = torch.cat([
-            instruction_tokens['token_type_ids'], room_type_ids, obj_type_ids
+            instruction_tokens['token_type_ids'], ndtw_type_ids, room_type_ids, obj_type_ids
         ], dim=1).to(device).long()
         instruction_tokens['attention_mask'] = torch.cat([
-            instruction_tokens['attention_mask'], map_attn_mask, map_attn_mask
+            instruction_tokens['attention_mask'], torch.ones(len(seq_lens), 1), map_attn_mask, map_attn_mask
         ], dim=1).to(device).long()
 
-        out = self.joint_model(**instruction_tokens, path_room_emb=path_room_emb, path_obj_emb=path_obj_emb)
+        ndtws = [info['ndtw'] for info in infos]
+        ndtws = torch.tensor(ndtws).to(device).float().unsqueeze(1)
+        ndtws= self.proj_ndtws(ndtws).unsqueeze(1)
+        out = self.joint_model(**instruction_tokens, ndtws=ndtws, path_room_emb=path_room_emb, path_obj_emb=path_obj_emb)
         logits = self.cls_head(out[0][:, 0])
         if self.regression:
             logits=logits.squeeze(1)
@@ -261,7 +267,6 @@ class PointNet_Transformer(pl.LightningModule):
         self.log('L-score', loss, batch_size=target.shape[0], prog_bar=True)
         loss += mlm_loss
         self.log('L-mlm', mlm_loss, batch_size=target.shape[0], prog_bar=True)
-        
         return loss
 
     def validation_step(self, val_batch, batch_idx):
@@ -279,7 +284,8 @@ class PointNet_Transformer(pl.LightningModule):
         out_list = []
         preds = preds.flatten().tolist()
         for pred, info in zip(preds, infos):
-            out_list.append(info.update({"pred": pred}))
+            info.update({"pred": pred})
+            out_list.append(info)
         
         self.mln_success_rate(out_list)
         
@@ -338,21 +344,20 @@ class PointNet_Transformer(pl.LightningModule):
             json.dump(outs, f)
         return 
     
-
-    # def mln_recall(self, preds, target):
-    #     if not self.regression:
-    #         preds = preds.argmax(dim=-1)
-    #     cnt = 0
-    #     tot = 0
-    #     for pred_score, target_score in zip(preds, target):
-    #         # 11 level score, for class label > 4 were treated correct in mlnv1
-    #         if pred_score > 4/10.:
-    #             tot += 1
-    #             if target_score > 4/10.:
-    #                 cnt +=1
-    #     if tot == 0:
-    #         return 0
-    #     else:
-    #         return cnt/tot
+    def mln_recall(self, preds, target):
+        if not self.regression:
+            preds = preds.argmax(dim=-1)
+        cnt = 0
+        tot = 0
+        for pred_score, target_score in zip(preds, target):
+            # 11 level score, for class label > 4 were treated correct in mlnv1
+            if pred_score > 4/10.:
+                tot += 1
+                if target_score > 4/10.:
+                    cnt +=1
+        if tot == 0:
+            return 0
+        else:
+            return cnt/tot
                 
 
