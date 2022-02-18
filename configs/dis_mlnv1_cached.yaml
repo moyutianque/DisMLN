@@ -21,22 +21,25 @@ TRAINER:
 
   
   EPOCHS: 50
+  EVAL_INTERVAL: 500
 
 DATASET:
   NAME: MLNv1_Dis_Dataset_Cached
-  annt_root: './dset_gen/generated/cache_full_merge/down4x_SP/{split}'
+  annt_root: './dset_gen/generated/merged/{split}'
+  target_type: 'both'
+  ndtw_weight: 0.5
 
   EVAL:
-    NAME: "valid"
+    NAME: "val_seen"
     batch_size: 32
     num_workers: 8
 
   TEST:
-    NAME: "test"
+    NAME: "val_seen"
     batch_size: 32
     num_workers: 8
 
   TRAIN: 
-    NAME: "train"
+    NAME: "val_seen"
     batch_size: 32
     num_workers: 8

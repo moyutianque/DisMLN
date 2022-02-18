@@ -43,7 +43,7 @@ class MLN_SuccessRate(Metric):
             res_local = copy.deepcopy(res)
             ep = res_local['ep_id'].split('-')[0]
             score = res_local['pred']
-            self.history[ep].add((score, (res_local['dis_score'], res_local['path'], res_local['ndtw'])))
+            self.history[ep].add((score, (res_local['dis_score'], res_local['ndtw'], res_local["ep_id"])))
 
     def compute(self):
         # compute final result
@@ -80,11 +80,11 @@ class MLN_SuccessRate(Metric):
         for k,v in self.history.items():
             tot += 1
             value = v.getTop(1)[0]
-            if value[0] > 4: # in 3 meter to goal point
+            if value[1][0] > 4: # in 3 meter to goal point
                 correct += 1
-                pred_results.append({"episode_id": k, "pred_path": value[1][1], "is_correct": True, "ndtw": value[1][2], "dist_score": value[1][0]})
+                pred_results.append({"episode_id": k, "ep_id": value[1][2], "pred": value[0], "is_correct": True, "ndtw": value[1][1], "dist_score": value[1][0]})
             else:
-                pred_results.append({"episode_id": k, "pred_path": value[1][1], "is_correct": False, "ndtw": value[1][2], "dist_score": value[1][0]})
+                pred_results.append({"episode_id": k, "ep_id": value[1][2], "pred": value[0], "is_correct": False, "ndtw": value[1][1], "dist_score": value[1][0]})
 
         if tot == 0:
             return 0, {}

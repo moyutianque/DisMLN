@@ -15,6 +15,8 @@ import pickle as pkl
 from utils.map_tools import execution_time
 from utils.instance_process import get_key_points
 from collections import defaultdict
+from utils.math_tools import scaler
+import math
 
 class TimeoutException(Exception):   # Custom exception class
     pass
@@ -24,10 +26,22 @@ def timeout_handler(signum, frame):   # Custom signal handler
 # Change the behavior of SIGALRM
 signal.signal(signal.SIGALRM, timeout_handler)
 
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--split",
+    choices=["train", "val_seen", "val_unseen"],
+    required=True
+)
+args = parser.parse_args()
+
 num_process =100
 # Load maps
-annt_root = '/data/leuven/335/vsc33595/ProjectsVSC/DisMLN/dset_gen/generated/raw_train'
-out_dir = './dset_gen/generated/merged/train_tmp'
+annt_root = f'/data/leuven/335/vsc33595/ProjectsVSC/DisMLN/dset_gen/generated/raw_{args.split}'
+out_dir = f'./dset_gen/generated/merged/{args.split}_tmp'
+
+print(f"running preprocessing..., output to {out_dir}")
+
 
 map_path = 'data/maps/gmap_floor1_mpp_0.05_channel_last_with_bounds'
 max_num_points = 50
@@ -97,23 +111,31 @@ def process_one_ep(datum, ep_idx):
     points_list = []
     room_list = []
     try:
+        trajectory = [] 
         for agent_stat in path:
+            # normalize traj path
+            scaled_r = scaler((0,datum['scene_shape'][0]), (-2, 2), agent_stat[0][0])
+            scaled_c = scaler((0,datum['scene_shape'][1]), (-2, 2), agent_stat[0][1])
+            direction_r = 2 * math.cos(agent_stat[1]) # [-2,2]
+            direction_c = 2 * math.sin(agent_stat[1]) # [-2,2]
+            trajectory.append((scaled_r, scaled_c, 0, direction_r, direction_c, 0))
+
             room_satus = get_room_compass(
                 map_key_points[datum['scene_name']]['rooms'], (*agent_stat[0], agent_stat[1]),
                 radius=10, num_chunks=room_compass_chunks, is_radian=True
             )
             _, relative_dict = get_surrounding_objs(
                 map_key_points[datum['scene_name']]['objs'], (*agent_stat[0], agent_stat[1]), 
-                3, is_radian=True
+                5, is_radian=True
             )
             
-            points = []
+            points = [] # object points
             for k, v in relative_dict.items():
                 for point in v:
                     points.append((point[0], point[1], 0, obj_layeridx2wordidx[k])) # point: [rel_r, rel_c, rel_ang, ins_id]
             
-            if len(points) == 0: # corner case, no object arround
-                continue
+            if len(points) == 1: # corner case, no object arround
+                print(f"No object for ep {d_id} scene {datum['scene_name']} at {agent_stat}")
 
             if len(points) > 50:
                 points = random.sample(points, 50)
@@ -138,11 +160,18 @@ def process_one_ep(datum, ep_idx):
                 'scene_name': datum['scene_name'],
                 "ep_id": d_id,
                 'instruction': instruction,
+                'normalized_traj': trajectory,
                 'room_list': room_list,
                 'points_list': points_list,
                 'target': target[0],
                 "ndtw": ndtw,
-                'raw': datum
+                "dtw": datum['dtw'],
+                # 'raw': {
+                #     "start": start,
+                #     "start_rot": datum['start_rot'],
+                #     "path": datum['path'],
+                #     "gt_path": datum['gt_path'],
+                # }
             })
     except Exception as e:
         print(f"Failed for ep-{d_id}, msg: {e}")

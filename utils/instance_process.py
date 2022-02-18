@@ -13,10 +13,7 @@ import quaternion
 from scipy.spatial import distance
 import time
 
-def scaler(bound, target_range, value):
-    value = np.clip(value, bound[0], bound[1])
-    v_std = (value-bound[0]) / (bound[1]-bound[0])
-    return v_std * (target_range[1] - target_range[0]) + target_range[0]
+from utils.math_tools import scaler
 
 
 def get_key_points(obj_maps, room_map):
@@ -65,6 +62,10 @@ def get_surrounding_objs(raw_objs, agent_grid_pos, radius=5, exemption_list=[1,1
     
     result_dict = defaultdict(list)
     relative_dict = defaultdict(list)
+
+    # add agent point (also for handling no object corner cases)
+    result_dict[-1].append((r, c, 0))
+    relative_dict[-1].append((0, 0, 0, 0))
     
     objs = raw_objs[(~np.isin(raw_objs[:,0], exemption_list)), :] # filter by exemption
 

@@ -43,7 +43,7 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = False
 
-    trainer = BaseTrainer(config)
+    trainer = BaseTrainer(config, run_type)
     if run_type == "train":
         trainer.train()
     # elif run_type == "eval":

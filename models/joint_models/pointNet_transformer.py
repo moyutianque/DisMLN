@@ -13,6 +13,8 @@ import itertools
 import json
 import numpy as np
 from metrics import MLN_SuccessRate
+from utils.pos_emb import get_embedder
+import json
 
 # NOTE: official solution for logging on console, file handler is declared in run.py
 import logging
@@ -22,6 +24,7 @@ class ModifiedBert(BertModel):
     def __init__(self, config):
         super().__init__(config)
         self.mlm_head = BertOnlyMLMHead(config)
+        self.mask_rate = 0.1
 
     def forward(
         self,
@@ -77,7 +80,7 @@ class ModifiedBert(BertModel):
             self.labels = input_ids.clone()
             rand = torch.rand(input_ids.shape).to(input_ids.device)
             # create mask array
-            mask_arr = (rand < 0.1) * (input_ids != 101) * \
+            mask_arr = (rand < self.mask_rate ) * (input_ids != 101) * \
                        (input_ids != 102) * (input_ids != 0)
             selection = []
 
@@ -191,12 +194,16 @@ class PointNet_Transformer(pl.LightningModule):
         self.joint_model.encoder = BertEncoder(self.join_model_config)
         self.joint_model.pooler = BertPooler(self.join_model_config)
         self.joint_model.embeddings.token_type_embeddings = nn.Embedding(4, config.OBJ_ENCODER.hidden_size)
-        
+
+        self.pos_emb_linear = nn.Linear(90, config.OBJ_ENCODER.hidden_size)
         self.regression = config.regression
         if not config.regression:
             self.cls_head = nn.Linear(config.OBJ_ENCODER.hidden_size, 10+1) # 11 level score, for class label > 4 were treated correct in mlnv1
         else:
-            self.cls_head = nn.Linear(config.OBJ_ENCODER.hidden_size, 1) # 11 level score, for class label > 4 were treated correct in mlnv1
+            self.cls_head = nn.Sequential(
+                nn.Linear(config.OBJ_ENCODER.hidden_size, 1), # 1 score output
+                # nn.Sigmoid()
+            )
 
         if self.regression:
             self.loss_fn = nn.MSELoss()
@@ -207,15 +214,17 @@ class PointNet_Transformer(pl.LightningModule):
 
     def forward(self, batch):
         # inference actions
-        instructions, obj_data, room_data, seq_lens, y, infos = batch
+        instructions, obj_data, room_data, agent_pos_embs, seq_lens, _, _ = batch
         device = obj_data.device
         # => obj_data [sum(points), max_num_objs, 3 + 50]
         # => instruction_emb [bs, 200, 50]
         # => obj_data[sum(points), num_chunks, 50]
         path_obj_emb = self.obj_encoder(obj_data) # [sum(points), hidden_size]
         path_room_emb = self.room_fusion(room_data.view(room_data.shape[0], -1)) # [sum(points), hidden_size]
-        path_obj_emb = pad_sequence(torch.split(path_obj_emb, seq_lens), batch_first=True)
-        path_room_emb = pad_sequence(torch.split(path_room_emb, seq_lens), batch_first=True)
+
+        agent_pos_embs = self.pos_emb_linear(pad_sequence(agent_pos_embs, batch_first=True))
+        path_obj_emb = pad_sequence(torch.split(path_obj_emb, seq_lens), batch_first=True) + agent_pos_embs
+        path_room_emb = pad_sequence(torch.split(path_room_emb, seq_lens), batch_first=True) + agent_pos_embs
 
         room_type_ids = []
         obj_type_ids = []
@@ -228,6 +237,7 @@ class PointNet_Transformer(pl.LightningModule):
         obj_type_ids = pad_sequence(obj_type_ids, batch_first=True)
         map_attn_mask = pad_sequence(map_attn_mask, batch_first=True)
 
+        
         # instruction_emb = self.glove_linear(instructions) # For glove instruction [bs, 200, hidden_size]
         instruction_tokens = self.tokenizer(instructions, return_tensors='pt', padding=True)
         instruction_tokens['input_ids'] = instruction_tokens['input_ids'].to(device).long()
@@ -251,7 +261,7 @@ class PointNet_Transformer(pl.LightningModule):
 
     def training_step(self, train_batch, batch_idx):
         # training_step defined the train loop.
-        _, _, _, _, target, infos = train_batch
+        _, _, _, _, _,target, infos = train_batch
         if self.regression:
             target = target.float()
         else:
@@ -266,7 +276,7 @@ class PointNet_Transformer(pl.LightningModule):
 
     def validation_step(self, val_batch, batch_idx):
         # validation_step defined the validation loop.
-        _, _, _, _, target, infos = val_batch
+        _, _, _, _, _, target, infos = val_batch
         if self.regression:
             target = target.float()
         else:
@@ -279,7 +289,8 @@ class PointNet_Transformer(pl.LightningModule):
         out_list = []
         preds = preds.flatten().tolist()
         for pred, info in zip(preds, infos):
-            out_list.append(info.update({"pred": pred}))
+            info.update({"pred": pred})
+            out_list.append(info)
         
         self.mln_success_rate(out_list)
         
@@ -300,8 +311,10 @@ class PointNet_Transformer(pl.LightningModule):
             out_dict = {
                 "val_score_loss": val_score_loss,
                 "val_distribution": sorted(list(zip(values, counts)), key=lambda x: x[0]),
-                "success_rate": success_rate
+                "success_rate": success_rate,
+                "sampled_results": json.dumps(selected_results[:10], indent=4)
             }
+
 
             logger.info(f"\n")
             for k,v in out_dict.items():
@@ -315,7 +328,7 @@ class PointNet_Transformer(pl.LightningModule):
     
     def test_step(self, batch, batch_idx):
         # OPTIONAL
-        _, _, _, _, target, infos = batch
+        _, _, _, _, _, target, infos = batch
         preds, _ = self(batch)
         if self.regression:
             target =  target.float()

@@ -15,7 +15,7 @@ from scipy.spatial import distance
 import copy
 import jsonlines
 from PIL import Image
-num_process = 100
+num_process = 50
 from fastdtw import fastdtw
 
 import signal
@@ -28,6 +28,15 @@ def timeout_handler(signum, frame):   # Custom signal handler
     
 # Change the behavior of SIGALRM
 signal.signal(signal.SIGALRM, timeout_handler)
+
+import argparse
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--split",
+    choices=["train", "val_seen", "val_unseen"],
+    required=True
+)
+args = parser.parse_args()
 
 out_root = './dset_gen/generated/raw_{split}'
 
@@ -72,6 +81,7 @@ class dset_generator(object):
         # Path Discretizing Config
         self.scale_percentage=100 # shortest path scale factor
         self.dis_steps = (discretized_in_meter / (meters_per_pixel * sp_step)) * (self.scale_percentage/100.)
+        self.dis_radius = discretized_in_meter / (meters_per_pixel * sp_step)
         if self.dis_steps <= 0:
             self.dis_steps=1
 
@@ -98,7 +108,7 @@ class dset_generator(object):
 
         # Processing data
         local_bound = self.create_bound(start_grid_pos, nav_map)
-        _, valid_map_medianblured = gen_valid_map(nav_map, obj_maps, bound = local_bound)
+        _, valid_map_medianblured = gen_valid_map(nav_map, obj_maps, bound = None) # NOTE: we crop valid map in latter code
         r,c = start_grid_pos
         if not valid_map_medianblured[r,c]:
             for x in range(-1, 2):
@@ -148,7 +158,9 @@ class dset_generator(object):
             print(f"Scene {scene_name} {ep_id} timeout")
         else:
             signal.alarm(0)
-            gt_locs = original_candidate_path[-1]
+            gt_idx = -2
+            # gt_locs = original_candidate_path[gt_idx]
+            gt_locs = original_candidate_path[gt_idx]
             for i in range(len(candidate_pathes)):
                 path = original_candidate_path[i]
 
@@ -164,6 +176,7 @@ class dset_generator(object):
                 out_dict= {
                     "id": f"{ep_id}-{i}",
                     "scene_name": scene_name,
+                    "scene_shape": valid_map_medianblured.shape,
                     "instruction": instruction,
                     "path": candidate_pathes[i],
                     "score": scores[i],
@@ -186,7 +199,7 @@ class dset_generator(object):
         pool = Pool(num_process)
         for episode in self.eps:
             pool.apply_async(self.process_one_ep, args=(episode, ))
-            #pool.apply(self.process_one_ep, args=(episode, ))
+            #self.process_one_ep(episode)
 
         pool.close()
         pool.join()
@@ -228,6 +241,25 @@ class dset_generator(object):
         dis_path.append((path[-1], self.get_rot(path[-2], path[-1]))) # end status
         return dis_path
 
+    def discretize_gtpath(self, path, start_rot, rot_smooth_range=2):
+        dis_path = [(path[0], start_rot)] # start status
+        for i in range(0,len(path)):
+            if i==0:
+                continue
+            if i == len(path)-1:
+                break
+
+            if euclidean_distance(path[i], dis_path[-1][0]) < self.dis_radius:
+                continue
+
+            p1 = path[max(i-rot_smooth_range, 0)]
+            p2 = path[i]
+            p3 = path[min(i+rot_smooth_range, len(path)-1)]
+            dis_path.append((path[i], self.get_rot(p1, p3)))
+        
+        dis_path.append((path[-1], self.get_rot(path[-2], path[-1]))) # end status
+        return dis_path
+
     def get_target_score(self, point, goal_point):
         """ assign target label (dist, score_cls) """
         dist = distance.euclidean(point, goal_point) * self.meters_per_pixel
@@ -237,17 +269,19 @@ class dset_generator(object):
             score = 10 - int(dist / 0.5) # 10 level score 10 is the highest, 1 is the lowest
         return (score, dist)
 
-    def get_candidate_paths(self, valid_map, start_point, start_rot, goal_point, gt_path, offset=(0,0)):
+    def get_candidate_paths(self, valid_map, start_point_raw, start_rot, goal_point, gt_path, offset=(0,0)):
         """
         Args:
             obj_maps: raw object maps, index 1 indicate floor
         """
         # most time consuming part
+        start_point = (start_point_raw[0]-offset[0], start_point_raw[1]-offset[1]) 
         solver = shortest_path2(valid_map, start_point, self.sp_radius, step=self.sp_step, scale_percent=self.scale_percentage)
 
         candidate_targets = create_candidates(
             valid_map, sample_gap=self.sample_gap, floor_idx = 1, meters_per_pixel=self.meters_per_pixel
         )
+        candidate_targets.append((goal_point[0]-offset[0], goal_point[1]-offset[1]))
 
         candidate_pathes = []
         for target in candidate_targets:
@@ -262,14 +296,22 @@ class dset_generator(object):
 
         # gen score
         scores = []
-        for i in range(len(candidate_pathes)):
+        for i in range(len(candidate_pathes)-1):
             candidate_pathes[i] = self.discretize_path(candidate_pathes[i], start_rot)
             scores.append(self.get_target_score(candidate_pathes[i][-1][0], goal_point))
+        
+        candidate_pathes[-1] = self.discretize_gtpath(candidate_pathes[-1], start_rot)
+        scores.append(self.get_target_score(candidate_pathes[-1][-1][0], goal_point))
+        
         return candidate_pathes, scores, original_candidate_path
 
     
     
 if __name__ == '__main__':
-    generator=dset_generator(split='val_unseen')
+    # generator=dset_generator(split='val_seen')
+    # generator=dset_generator(split='val_unseen')
+    generator=dset_generator(split=args.split)
     generator.gen()
-    
+
+
+    #sssss

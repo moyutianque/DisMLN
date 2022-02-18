@@ -151,6 +151,8 @@ obj_layeridx2wordidx = {
    k: obj_word_mapping[v] for k,v in semantic_sensor_40cat.items() if v in obj_word_mapping
 }
 
+obj_layeridx2wordidx.update({-1: 597}) # for notify agent use word 'current'
+
 room_layeridx2wordidx = {
    k: room_word_mapping[v] for k,v in roomidx2name.items() if v in room_word_mapping
 }
