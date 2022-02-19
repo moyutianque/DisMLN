@@ -7,6 +7,7 @@ import numpy as np
 from trainer import BaseTrainer
 import pprint 
 import logging
+import os
 
 
 def run_exp(exp_config: str, run_type: str, opts=None) -> None:
@@ -25,13 +26,15 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
         config.merge_from_list(opts)
     config.freeze()
 
+    tb_logger = pl_loggers.TensorBoardLogger(config.LOG_DIR, name=config.TRAINER.MODEL_NAME)
     # NOTE: official solution for logging on console, file handler is declared in run.py
     # configure logging at the root level of lightning
     logging.getLogger("pytorch_lightning").setLevel(logging.INFO)
 
     # # configure logging on module level, redirect to file
     logger = logging.getLogger("pytorch_lightning.core")
-    logger.addHandler(logging.FileHandler(f"{config.LOG_DIR}/core.log"))
+    os.makedirs(tb_logger.log_dir)
+    logger.addHandler(logging.FileHandler(f"{tb_logger.log_dir}/core.log"))
     logger.info("CONFIG: ")
     logger.info(pprint.pformat(config, indent=4))
     logger.info("="*20)
@@ -43,7 +46,7 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = False
 
-    trainer = BaseTrainer(config, run_type)
+    trainer = BaseTrainer(config, run_type, logger=tb_logger)
     if run_type == "train":
         trainer.train()
     # elif run_type == "eval":

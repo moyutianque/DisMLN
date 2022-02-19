@@ -88,7 +88,7 @@ class MLN_SuccessRate(Metric):
                 pred_results.append({"episode_id": k, "ep_id": value[1][2], "pred": value[0], "is_correct": True, "ndtw": value[1][1], "dist_score": value[1][0]})
             else:
                 pred_results.append({"episode_id": k, "ep_id": value[1][2], "pred": value[0], "is_correct": False, "ndtw": value[1][1], "dist_score": value[1][0]})
-
+        print('\033[92m'+f'Evaluated {tot} samples {correct} correct'+'\033[0m')
         if tot == 0:
             return 0, {}
         return correct / tot, pred_results
