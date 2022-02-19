@@ -49,9 +49,11 @@ def run_exp(exp_config: str, run_type: str, opts=None) -> None:
     trainer = BaseTrainer(config, run_type, logger=tb_logger)
     if run_type == "train":
         trainer.train()
-    # elif run_type == "eval":
-    #     trainer.eval()
+    elif run_type == "eval":
+        print('\033[92m'+f"Evaluating for dataset split {config.DATASET.EVAL.NAME}"+'\033[0m')
+        trainer.eval(config.EVAL_PATH)
     elif run_type == "inference":
+        print('\033[92m'+f"Inference on dataset split {config.DATASET.TEST.NAME}"+'\033[0m')
         trainer.inference(config.EVAL_PATH)
 
 

@@ -1,6 +1,6 @@
 LOG_DIR: './exps'
 SEED: 100
-EVAL_PATH: "./tmp/ckpts/epoch=0-step=999.ckpt"
+EVAL_PATH: ""
 TRAINER:
   MODEL_NAME: PointNet_Transformer
   MODEL:

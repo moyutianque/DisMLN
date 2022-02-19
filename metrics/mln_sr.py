@@ -93,3 +93,47 @@ class MLN_SuccessRate(Metric):
             return 0, {}
         return correct / tot, pred_results
 
+
+class MLN_Test_Metric(Metric):
+    def __init__(self, compute_on_step=False, dist_sync_on_step=False):
+        # call `self.add_state`for every internal state that is needed for the metrics computations
+        # dist_reduce_fx indicates the function that should be used to reduce
+        # state from multiple processes
+        super().__init__(compute_on_step=compute_on_step, dist_sync_on_step=dist_sync_on_step)
+ 
+        self.history = defaultdict(list) # has not consider sync of history dict
+        # TODO: sync of history accumulator
+    
+    def update(self, results):
+        # update metric states
+        for res in results:
+            res_local = copy.deepcopy(res)
+            ep = res_local['ep_id'].split('-')[0]
+            score = res_local['pred']
+            self.history[ep].append((score, res_local['dis_score'], res_local['ndtw'], res_local["ep_id"]))
+    
+    def reset(self) -> None:
+        """ modified reset """
+        self._update_called = False
+        self._forward_cache = None
+        # lower lightning versions requires this implicitly to log metric objects correctly in self.log
+        if not _LIGHTNING_AVAILABLE or self._LIGHTNING_GREATER_EQUAL_1_3:
+            self._computed = None
+
+        for attr, default in self._defaults.items():
+            current_val = getattr(self, attr)
+            if isinstance(default, Tensor):
+                setattr(self, attr, default.detach().clone().to(current_val.device))
+            else:
+                setattr(self, attr, [])
+
+        setattr(self, "history", defaultdict(list))
+
+        # reset internal states
+        self._cache = None
+        self._is_synced = False
+
+    def compute(self):
+        # compute final result
+        return None, dict(self.history)
+

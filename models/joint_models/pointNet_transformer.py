@@ -4,6 +4,7 @@ import warnings
 import torch.nn as nn
 import pytorch_lightning as pl
 import torchmetrics
+import os
 from models.extractor_local_rep import build_extractor
 from transformers import BertTokenizer, BertModel, BertConfig
 from transformers.modeling_bert import BertEncoder, BertPooler, BertOnlyMLMHead
@@ -12,7 +13,7 @@ from statistics import mean
 import itertools
 import json
 import numpy as np
-from metrics import MLN_SuccessRate
+from metrics import MLN_SuccessRate, MLN_Test_Metric
 from utils.pos_emb import get_embedder
 import json
 
@@ -211,6 +212,7 @@ class PointNet_Transformer(pl.LightningModule):
             self.loss_fn = LabelSmoothing(0.1)
         
         self.mln_success_rate = MLN_SuccessRate()
+        self.mln_test_container = MLN_Test_Metric()
 
     def forward(self, batch):
         # inference actions
@@ -327,46 +329,29 @@ class PointNet_Transformer(pl.LightningModule):
         self.mln_success_rate.reset()
         return out_dict
     
+
     def test_step(self, batch, batch_idx):
-        # OPTIONAL
-        _, _, _, _, _, target, infos = batch
+        # validation_step defined the validation loop.
+        _, _, _, _, _, _, infos = batch
+
         preds, _ = self(batch)
-        if self.regression:
-            target =  target.float()
-        else:
-            target = target.long()
-            _, preds = torch.max(pred, 1)
         
         out_list = []
         preds = preds.flatten().tolist()
         for pred, info in zip(preds, infos):
-            out_list.append({"ep_id": info['ep_id'], 'scene_name': info['scene_name'], 'pred_score': pred})
-
-        return out_list
+            info.update({"pred": pred})
+            out_list.append(info)
+        
+        self.mln_test_container(out_list)
+        
+        return
 
     def test_epoch_end(self, outputs):
-        outs = list(itertools.chain.from_iterable(outputs))
-        out_path = './tmp/test_out.json'
-        print(f"Output to {out_path}")
+        _, predictions = self.mln_test_container.compute()
+        out_path = os.path.join(self.trainer.logger.log_dir, "pred_results.json")
+        print(f"Output predictions for {len(predictions)} episodes in current split")
         with open(out_path, 'w') as f:
-            json.dump(outs, f)
+            json.dump(predictions, f)
         return 
-    
-
-    # def mln_recall(self, preds, target):
-    #     if not self.regression:
-    #         preds = preds.argmax(dim=-1)
-    #     cnt = 0
-    #     tot = 0
-    #     for pred_score, target_score in zip(preds, target):
-    #         # 11 level score, for class label > 4 were treated correct in mlnv1
-    #         if pred_score > 4/10.:
-    #             tot += 1
-    #             if target_score > 4/10.:
-    #                 cnt +=1
-    #     if tot == 0:
-    #         return 0
-    #     else:
-    #         return cnt/tot
-                
+     
 
