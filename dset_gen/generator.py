@@ -15,7 +15,7 @@ from scipy.spatial import distance
 import copy
 import jsonlines
 from PIL import Image
-num_process = 50
+num_process = 100
 from fastdtw import fastdtw
 
 import signal
@@ -162,6 +162,8 @@ class dset_generator(object):
             # gt_locs = original_candidate_path[gt_idx]
             gt_locs = original_candidate_path[gt_idx]
             for i in range(len(candidate_pathes)):
+                if (i >= len(candidate_pathes) -2) and self.split in ['val_seen', 'val_unseen']:
+                    continue
                 path = original_candidate_path[i]
 
                 # Calculate DTW and NDTW

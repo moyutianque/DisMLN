@@ -284,7 +284,7 @@ class PointNet_Transformer(pl.LightningModule):
 
         preds, _ = self(val_batch)
         loss = self.loss_fn(preds, target)
-        self.log('val_L-score', loss, batch_size=target.shape[0], prog_bar=True)
+        self.log('val_L-score', loss, batch_size=target.shape[0])
         
         out_list = []
         preds = preds.flatten().tolist()
@@ -308,11 +308,12 @@ class PointNet_Transformer(pl.LightningModule):
             success_rate, selected_results = self.mln_success_rate.compute()
             self.log('success_rate', success_rate)
             # Collect report information
+            sample_len = min(10, len(selected_results))
             out_dict = {
                 "val_score_loss": val_score_loss,
                 "val_distribution": sorted(list(zip(values, counts)), key=lambda x: x[0]),
                 "success_rate": success_rate,
-                "sampled_results": json.dumps(selected_results[:10], indent=4)
+                "sampled_results": json.dumps(selected_results[:sample_len], indent=4)
             }
 
 

@@ -29,7 +29,7 @@ class BaseTrainer:
             test_dset = getattr(dataset, config.DATASET.NAME)(config.DATASET, config.DATASET.TEST.NAME)
             self.test_loader = DataLoader(test_dset, batch_size=config.DATASET.TEST.batch_size, num_workers=config.DATASET.EVAL.num_workers, shuffle=False, drop_last=False, collate_fn=test_dset.collate_fc)
 
-        checkpoint_callback = ModelCheckpoint(dirpath=os.path.join(config.LOG_DIR, config.TRAINER.MODEL_NAME, "ckpts"), save_top_k=2, monitor="success_rate")
+        checkpoint_callback = ModelCheckpoint(dirpath=os.path.join(config.LOG_DIR, config.TRAINER.MODEL_NAME, "ckpts"), save_top_k=2, monitor="success_rate", mode='max')
         self.trainer = pl.Trainer(
             max_epochs=config.TRAINER.EPOCHS, progress_bar_refresh_rate=20, 
             default_root_dir=config.LOG_DIR,

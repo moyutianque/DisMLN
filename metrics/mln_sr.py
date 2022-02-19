@@ -5,6 +5,7 @@ from torchmetrics.metric import Metric, _LIGHTNING_AVAILABLE, Tensor
 from collections import defaultdict
 from utils.time_tools import execution_time
 import copy
+import warnings
 
 from heapq import heapify, heappush, heappushpop, nlargest
 
@@ -76,7 +77,9 @@ class MLN_SuccessRate(Metric):
         correct = 0
         tot = 0
         pred_results = []
-        assert len(self.history) > 10, f"History length {len(self.history)} is impossible for normal validation"
+        if len(self.history) < 10:
+            warnings.warn(f"History length only {len(self.history)}, Please check ep_id if in normal validation floop")
+            
         for k,v in self.history.items():
             tot += 1
             value = v.getTop(1)[0]

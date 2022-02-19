@@ -166,12 +166,12 @@ def process_one_ep(datum, ep_idx):
                 'target': target[0],
                 "ndtw": ndtw,
                 "dtw": datum['dtw'],
-                # 'raw': {
-                #     "start": start,
-                #     "start_rot": datum['start_rot'],
-                #     "path": datum['path'],
-                #     "gt_path": datum['gt_path'],
-                # }
+                'raw': {
+                    "start": start,
+                    "start_rot": datum['start_rot'],
+                    "path": datum['path'],
+                    "gt_path": datum['gt_path'],
+                }
             })
     except Exception as e:
         print(f"Failed for ep-{d_id}, msg: {e}")
