@@ -1,2 +1,1 @@
 from models.joint_models.pointNet_transformer import PointNet_Transformer
-from models.joint_models.pointNet_transformer_ndtw import PointNet_Transformer_NDTW
